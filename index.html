@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frequency Spectrum Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* Dark background */
+        }
+        .container {
+            max-width: 1024px;
+        }
+        svg {
+            background-color: #2d3748; /* Darker background for the chart */
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            cursor: grab;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="container mx-auto p-8 bg-gray-800 rounded-xl shadow-2xl space-y-8">
+        <h1 class="text-3xl font-bold text-center text-blue-400">Spectrum Visualizer</h1>
+        <p class="text-center text-gray-400">Enter LTE and GSM channel information to visualize the frequency bands.</p>
+
+        <!-- Input Form -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="flex flex-col space-y-4">
+                <label class="block">
+                    <span class="text-gray-300">LTE EARFCN:</span>
+                    <input id="lteEarfcn" type="number" class="mt-1 block w-full rounded-md bg-gray-700 border-transparent focus:border-blue-500 focus:bg-gray-700 focus:ring-0 p-2" placeholder="e.g., 6200">
+                </label>
+                <label class="block">
+                    <span class="text-gray-300">LTE Band:</span>
+                    <input id="lteBand" type="number" class="mt-1 block w-full rounded-md bg-gray-700 border-transparent focus:border-blue-500 focus:bg-gray-700 focus:ring-0 p-2" placeholder="e.g., 1, 3 (defaults to Band 3)">
+                </label>
+                <label class="block">
+                    <span class="text-gray-300">LTE Bandwidth (MHz):</span>
+                    <input id="lteBandwidth" type="number" step="0.1" class="mt-1 block w-full rounded-md bg-gray-700 border-transparent focus:border-blue-500 focus:bg-gray-700 focus:ring-0 p-2" placeholder="e.g., 5.0">
+                </label>
+            </div>
+            <div class="flex flex-col space-y-4">
+                <label class="block">
+                    <span class="text-gray-300">GSM ARFCN(s) or ARFCN Range(s):</span>
+                    <textarea id="gsmArfcns" rows="4" class="mt-1 block w-full rounded-md bg-gray-700 border-transparent focus:border-blue-500 focus:bg-gray-700 focus:ring-0 p-2" placeholder="e.g., 38-49, 75, 520-530, 980-990"></textarea>
+                </label>
+            </div>
+        </div>
+
+        <button onclick="generateChart()" class="w-full py-3 px-4 rounded-md bg-blue-500 text-white font-bold hover:bg-blue-600 transition-colors duration-200">
+            Generate Spectrum
+        </button>
+
+        <!-- Chart -->
+        <div id="chart-container" class="relative w-full overflow-x-auto p-4">
+            <svg id="spectrumChart" class="w-full h-96"></svg>
+        </div>
+    </div>
+
+    <script>
+        // Mapping of LTE bands to their DL (Downlink) frequency parameters
+        const lteBandParams = {
+            1: { dlOffset: 2110.0, dlN_offset: 0 }, // Band 1 (2100 MHz)
+            3: { dlOffset: 1805.0, dlN_offset: 1200 }, // Band 3 (1800 MHz)
+            7: { dlOffset: 2620.0, dlN_offset: 2750 }, // Band 7 (2600 MHz)
+            8: { dlOffset: 925.0, dlN_offset: 3450 } // Band 8 (900 MHz)
+            // Add more bands as needed for more accurate calculations
+        };
+        
+        function convertEarfcnToDlFreq(earfcn, band = 3) {
+            const params = lteBandParams[band];
+            if (!params) {
+                console.warn(`Warning: LTE Band ${band} not found. Using Band 3 as default.`);
+                return lteBandParams[3].dlOffset + 0.1 * (earfcn - lteBandParams[3].dlN_offset);
+            }
+            return params.dlOffset + 0.1 * (earfcn - params.dlN_offset);
+        }
+
+        function convertArfcnToDlFreq(arfcn) {
+            // GSM-900 uses different formulas for different ARFCN ranges
+            if (arfcn >= 975 && arfcn <= 1023) {
+                // E-GSM 900
+                return 935.2 + 0.2 * (arfcn - 1024);
+            } else if (arfcn >= 1 && arfcn <= 124) {
+                // Standard GSM 900 (P-GSM)
+                return 935.2 + 0.2 * (arfcn - 1);
+            } else if (arfcn >= 512 && arfcn <= 885) {
+                // DCS 1800
+                return 1805.2 + 0.2 * (arfcn - 512);
+            }
+            return 0; // Return 0 for unsupported ARFCNs
+        }
+
+        function parseGsmInput(input) {
+            const ranges = input.split(',').map(s => s.trim()).filter(s => s.length > 0);
+            const parsedArfcns = [];
+            ranges.forEach(rangeStr => {
+                if (rangeStr.includes('-')) {
+                    const parts = rangeStr.split('-').map(Number);
+                    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                        parsedArfcns.push({ start: parts[0], end: parts[1] });
+                    }
+                } else {
+                    const singleArfcn = Number(rangeStr);
+                    if (!isNaN(singleArfcn)) {
+                        parsedArfcns.push({ start: singleArfcn, end: singleArfcn });
+                    }
+                }
+            });
+            return parsedArfcns;
+        }
+
+        function generateChart() {
+            // Get input values
+            const lteEarfcn = document.getElementById('lteEarfcn').value;
+            const lteBand = document.getElementById('lteBand').value || 3;
+            let lteBandwidth = parseFloat(document.getElementById('lteBandwidth').value);
+
+            // Set a default bandwidth if input is empty or invalid
+            if (isNaN(lteBandwidth) || lteBandwidth <= 0) {
+                lteBandwidth = 5; // Default to 5 MHz if nothing is entered
+            }
+
+            const gsmInput = document.getElementById('gsmArfcns').value;
+
+            if (!lteEarfcn) {
+                // Use a custom message box instead of alert()
+                const messageBox = document.createElement('div');
+                messageBox.className = 'fixed inset-0 flex items-center justify-center bg-black bg-opacity-50';
+                messageBox.innerHTML = `
+                    <div class="bg-gray-800 p-6 rounded-lg shadow-lg text-center">
+                        <p>Please enter an LTE EARFCN.</p>
+                        <button class="mt-4 px-4 py-2 bg-blue-500 rounded text-white hover:bg-blue-600" onclick="this.parentElement.parentElement.remove()">OK</button>
+                    </div>
+                `;
+                document.body.appendChild(messageBox);
+                return;
+            }
+
+            // Convert and prepare data for visualization
+            const lteCenterFreq = convertEarfcnToDlFreq(lteEarfcn, lteBand);
+            const lteStartFreq = lteCenterFreq - lteBandwidth / 2;
+            const lteEndFreq = lteCenterFreq + lteBandwidth / 2;
+
+            let data = [];
+            data.push({
+                name: 'LTE',
+                type: 'LTE',
+                start: lteStartFreq,
+                end: lteEndFreq,
+                center: lteCenterFreq,
+                bandwidth: lteBandwidth
+            });
+
+            // Process GSM ARFCNs
+            const gsmArfcnRanges = parseGsmInput(gsmInput);
+            gsmArfcnRanges.forEach(range => {
+                let gsmStartFreq, gsmEndFreq;
+                const gsmBandName = (range.start >= 512 && range.start <= 885) ? 'GSM 1800' : 'GSM';
+                
+                if (range.start === range.end) {
+                    // It's a single ARFCN, give it a 200 kHz bandwidth
+                    const gsmCenterFreq = convertArfcnToDlFreq(range.start);
+                    gsmStartFreq = gsmCenterFreq - 0.1;
+                    gsmEndFreq = gsmCenterFreq + 0.1;
+                } else {
+                    // For a range, the start is the start of the first channel and the end is the end of the last channel
+                    const firstArfcnCenter = convertArfcnToDlFreq(range.start);
+                    const lastArfcnCenter = convertArfcnToDlFreq(range.end);
+                    gsmStartFreq = firstArfcnCenter - 0.1; 
+                    gsmEndFreq = lastArfcnCenter + 0.1;
+                }
+
+                // Add to data for chart visualization
+                data.push({
+                    name: `${gsmBandName} ${range.start}${range.start !== range.end ? '-' + range.end : ''}`,
+                    type: 'GSM',
+                    start: gsmStartFreq,
+                    end: gsmEndFreq
+                });
+            });
+            
+            // Create the chart visualization
+            const svg = d3.select("#spectrumChart");
+            const width = svg.node().clientWidth;
+            const height = svg.node().clientHeight;
+            const margin = { top: 40, right: 30, bottom: 50, left: 60 };
+            const innerWidth = width - margin.left - margin.right;
+            const innerHeight = height - margin.top - margin.bottom;
+
+            svg.selectAll("*").remove(); // Clear previous chart
+
+            const g = svg.append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Find min and max frequency for the x-axis domain
+            const allFreqs = data.flatMap(d => [d.start, d.end]);
+            const minFreq = Math.min(...allFreqs) - 2.5; // Add some padding
+            const maxFreq = Math.max(...allFreqs) + 2.5; // Add some padding
+
+            const xScale = d3.scaleLinear()
+                .domain([minFreq, maxFreq])
+                .range([0, innerWidth]);
+
+            const yScale = d3.scaleBand()
+                .domain(data.map(d => d.name))
+                .range([0, innerHeight])
+                .padding(0.2);
+            
+            // Create a group for the bars and lines so they can be transformed together
+            const chartContent = g.append("g");
+
+            // Draw frequency bars
+            chartContent.selectAll(".freq-bar")
+                .data(data)
+                .enter().append("rect")
+                .attr("class", "freq-bar")
+                .attr("x", d => xScale(d.start))
+                .attr("y", d => yScale(d.name))
+                .attr("width", d => xScale(d.end) - xScale(d.start))
+                .attr("height", yScale.bandwidth())
+                .attr("fill", d => d.type === 'LTE' ? '#3182CE' : '#F6AD55')
+                .attr("stroke", d => d.type === 'LTE' ? '#2B6CB0' : '#DD6B20')
+                .attr("stroke-width", 2)
+                .attr("rx", 5);
+
+            // Add labels for each bar
+            chartContent.selectAll(".bar-label")
+                .data(data)
+                .enter().append("text")
+                .attr("class", "bar-label")
+                .attr("x", d => xScale(d.start) + 10)
+                .attr("y", d => yScale(d.name) + yScale.bandwidth() / 2)
+                .attr("dy", "0.35em")
+                .text(d => d.name)
+                .attr("fill", "white")
+                .style("font-size", "12px")
+                .style("font-weight", "bold");
+
+            // Add the LTE center frequency and bandwidth lines/labels
+            const lteData = data.find(d => d.type === 'LTE');
+            if (lteData) {
+                // Bandwidth Label
+                chartContent.append("text")
+                    .attr("class", "bandwidth-label")
+                    .attr("x", xScale(lteData.center) - 10)
+                    .attr("y", yScale(lteData.name) - 10)
+                    .attr("text-anchor", "end")
+                    .text(`${lteData.bandwidth.toFixed(1)} MHz`)
+                    .attr("fill", "white")
+                    .style("font-size", "12px")
+                    .style("font-weight", "bold");
+
+                // Center Frequency Line
+                chartContent.append("line")
+                    .attr("class", "center-line")
+                    .attr("x1", xScale(lteData.center))
+                    .attr("y1", yScale(lteData.name))
+                    .attr("x2", xScale(lteData.center))
+                    .attr("y2", yScale(lteData.name) + yScale.bandwidth())
+                    .attr("stroke", "white")
+                    .attr("stroke-width", 2)
+                    .attr("stroke-dasharray", "5,5");
+
+                // Center Frequency Label
+                chartContent.append("text")
+                    .attr("class", "center-label")
+                    .attr("x", xScale(lteData.center) + 10)
+                    .attr("y", yScale(lteData.name) - 10)
+                    .attr("text-anchor", "start")
+                    .text(`${lteData.center.toFixed(2)} MHz`)
+                    .attr("fill", "white")
+                    .style("font-size", "12px");
+            }
+            
+            // Draw lines down to the horizontal axis for each band's start and end frequencies
+            chartContent.selectAll(".freq-line-start")
+                .data(data)
+                .enter().append("line")
+                .attr("class", "freq-line-start")
+                .attr("x1", d => xScale(d.start))
+                .attr("y1", d => yScale(d.name) + yScale.bandwidth())
+                .attr("x2", d => xScale(d.start))
+                .attr("y2", innerHeight)
+                .attr("stroke", '#6B7280')
+                .attr("stroke-width", 1.5)
+                .attr("stroke-dasharray", "3,3");
+            
+            chartContent.selectAll(".freq-line-end")
+                .data(data)
+                .enter().append("line")
+                .attr("class", "freq-line-end")
+                .attr("x1", d => xScale(d.end))
+                .attr("y1", d => yScale(d.name) + yScale.bandwidth())
+                .attr("x2", d => xScale(d.end))
+                .attr("y2", innerHeight)
+                .attr("stroke", '#6B7280')
+                .attr("stroke-width", 1.5)
+                .attr("stroke-dasharray", "3,3");
+
+            // Add X-axis (frequency)
+            const xAxis = d3.axisBottom(xScale).tickFormat(d => d + ' MHz');
+            const xAxisGroup = g.append("g")
+                .attr("class", "x-axis")
+                .attr("transform", `translate(0, ${innerHeight})`)
+                .call(xAxis)
+                .selectAll("text")
+                .attr("fill", "gray");
+
+            // Add Y-axis (channel names)
+            const yAxis = d3.axisLeft(yScale);
+            g.append("g")
+                .call(yAxis)
+                .selectAll("text")
+                .attr("fill", "gray");
+
+
+            // D3 Zoom implementation
+            const zoom = d3.zoom()
+                .scaleExtent([1, 10]) // Limit zoom scale to a max of 10x
+                .translateExtent([[0, 0], [innerWidth, innerHeight]]) // Limit pan
+                .on("zoom", (event) => {
+                    const newXScale = event.transform.rescaleX(xScale);
+                    
+                    // Update the x-axis
+                    g.select(".x-axis").call(d3.axisBottom(newXScale).tickFormat(d => d + ' MHz'));
+                    
+                    // Update all the chart elements with the new scale
+                    chartContent.selectAll(".freq-bar")
+                        .attr("x", d => newXScale(d.start))
+                        .attr("width", d => newXScale(d.end) - newXScale(d.start));
+                    
+                    chartContent.selectAll(".bar-label")
+                        .attr("x", d => newXScale(d.start) + 10);
+                        
+                    // Update LTE center frequency and bandwidth labels
+                    if (lteData) {
+                        chartContent.selectAll(".center-line")
+                            .attr("x1", newXScale(lteData.center))
+                            .attr("x2", newXScale(lteData.center));
+                            
+                        chartContent.selectAll(".center-label")
+                            .attr("x", newXScale(lteData.center) + 10);
+                        
+                        chartContent.selectAll(".bandwidth-label")
+                            .attr("x", newXScale(lteData.center) - 10);
+                    }
+
+
+                    // Update the start lines with the new scale
+                    chartContent.selectAll(".freq-line-start")
+                        .attr("x1", d => newXScale(d.start))
+                        .attr("x2", d => newXScale(d.start));
+
+                    // Update the end lines with the new scale
+                    chartContent.selectAll(".freq-line-end")
+                         .attr("x1", d => newXScale(d.end))
+                         .attr("x2", d => newXScale(d.end));
+                });
+            
+            svg.call(zoom);
+
+            
+        }
+    </script>
+
+</body>
+</html>

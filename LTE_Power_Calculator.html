@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LTE Radio Power Calculator</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Add MathJax for LaTeX rendering -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        // MathJax configuration
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']] // Enable $...$ for inline, but we use $$ for block
+            },
+            loader: {}
+        };
+        // Use Math.log10 polyfill for broader browser support
+        Math.log10 = Math.log10 || function(x) {
+            return Math.log(x) / Math.LN10;
+        };
+
+        // Define valid constraint sets
+        const VALID_PB = [0, 1, 2, 3];
+        const VALID_PA = [-6, -4.77, -3, -1.77, 0, 1, 2, 3];
+
+        /**
+         * Simple message box handler instead of alert()
+         */
+        function showMessage(message, type = 'info') {
+            const messageBox = document.getElementById('messageBox');
+            messageBox.textContent = message;
+            
+            // Apply color coding based on type
+            messageBox.className = 'p-3 rounded-lg mt-4 w-full';
+            if (type === 'warning') {
+                messageBox.classList.add('bg-yellow-900', 'text-yellow-300', 'border-yellow-700', 'border');
+            } else {
+                messageBox.classList.add('bg-blue-900', 'text-blue-300', 'border-blue-700', 'border');
+            }
+
+            messageBox.classList.remove('hidden');
+
+            // Hide the message after 5 seconds
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+            }, 5000);
+        }
+        
+        // --- CALCULATOR 1: RRU & RS Power (PA derived from pb) ---
+
+        function calculateRruRsPower() {
+            // 1. Get and sanitize inputs, applying constraints and defaults
+            const rruPowerWInput = document.getElementById('rruPowerW');
+            const txPortsInput = document.getElementById('txPorts');
+            const bandwidthInput = document.getElementById('bandwidth');
+            const pbInput = document.getElementById('pb');
+            
+            let rruPowerW = parseFloat(rruPowerWInput.value) || 0;
+            let txPorts = parseFloat(txPortsInput.value) || 2;
+            let bandwidthMHz = parseFloat(bandwidthInput.value) || 0;
+            let pb = parseFloat(pbInput.value) || 0;
+
+            if (txPorts <= 0 || isNaN(txPorts)) { txPorts = 2; txPortsInput.value = 2; }
+            if (!VALID_PB.includes(pb) || isNaN(pb)) {
+                pb = 0;
+                pbInput.value = 0;
+                showMessage('pb value in Calculator 1 reset to default (0). Must be one of: 0, 1, 2, 3.', 'warning');
+            }
+
+            // 2. Determine PA based on pb mapping (Kept for potential future use, but not displayed)
+            let pa = 0;
+            switch (pb) {
+                case 1: pa = -3; break;
+                case 2: pa = -4.77; break;
+                case 3: pa = -6; break;
+                case 0: default: pa = 0; break;
+            }
+
+            // 3. Perform Power Calculations
+            let rruPowerDbm = 0;
+            let rsPowerDbm = 'N/A';
+
+            try {
+                // RRU Power (dBm) = 10 * LOG10(1000 * RRU Power (W))
+                if (rruPowerW > 0) {
+                    rruPowerDbm = 10 * Math.log10(rruPowerW * 1000);
+                } else {
+                    rruPowerDbm = -Infinity;
+                }
+
+                if (rruPowerDbm !== -Infinity && bandwidthMHz > 0 && txPorts > 0) {
+                    const totalResources = 60 * bandwidthMHz; // Calculation uses a simplified total RE count (e.g. 15MHz * 60 = 900)
+                    // RS Power (dBm) = RRU Power (dBm) - 10*LOG10(TX) - 10*LOG10(Total Resources) + 10*LOG10(1+pb) - 0.05
+                    rsPowerDbm = rruPowerDbm -
+                                 (10 * Math.log10(txPorts)) -
+                                 (10 * Math.log10(totalResources)) +
+                                 (10 * Math.log10(1 + pb)) -
+                                 0.05;
+                    
+                    rsPowerDbm = rsPowerDbm.toFixed(2);
+                } else {
+                    rsPowerDbm = 'Invalid Inputs';
+                }
+
+                rruPowerDbm = rruPowerDbm !== -Infinity ? rruPowerDbm.toFixed(2) : '-∞';
+
+            } catch (error) {
+                console.error("Calculation Error (Calc 1):", error);
+                rruPowerDbm = 'Error';
+                rsPowerDbm = 'Error';
+            }
+
+            // 4. Display Results
+            document.getElementById('rruPowerDbm').textContent = rruPowerDbm + ' dBm';
+            document.getElementById('rsPowerDbm').textContent = rsPowerDbm + ' dBm';
+        }
+
+        // --- CALCULATOR 2: Real Transmit Power (PA independent of pb) ---
+        
+        /**
+         * Implements the C1 factor logic for Type B calculation based on TX Ports and pb.
+         * C1 = IF(TX=1, SWITCH(pb, 0, 1, 1, 4/5, 2, 3/5, 3, 2/5), SWITCH(pb, 0, 5/4, 1, 1, 2, 3/4, 3, 1/2))
+         */
+        function getTypeBC1Factor(txPorts, pb) {
+            if (txPorts === 1) {
+                switch (pb) {
+                    case 0: return 1;
+                    case 1: return 4/5; 
+                    case 2: return 3/5; 
+                    case 3: return 2/5; 
+                    default: return 0;
+                }
+            } else { // TX Ports >= 2 (assumed > 1 for the logic based on IF(TX=1, ...)
+                switch (pb) {
+                    case 0: return 5/4; 
+                    case 1: return 1;
+                    case 2: return 3/4; 
+                    case 3: return 1/2; 
+                    default: return 0;
+                }
+            }
+        }
+
+        function calculateRealTransmitPower() {
+            // 1. Get and sanitize inputs (PA is now independent)
+            const rsPowerDbm = parseFloat(document.getElementById('rsPowerDbm2').value) || 0;
+            const txPorts = parseFloat(document.getElementById('txPorts2').value) || 2;
+            const bandwidthMHz = parseFloat(document.getElementById('bandwidth2').value) || 0;
+            const pb = parseFloat(document.getElementById('pb2').value) || 0;
+            const pa = parseFloat(document.getElementById('pa2').value) || 0; // Independent PA input
+
+            // Input Validation
+            if (txPorts <= 0 || isNaN(txPorts)) { 
+                document.getElementById('txPorts2').value = 2; 
+                showMessage('TX Ports in Calculator 2 reset to 2.', 'warning');
+                return; 
+            }
+            if (bandwidthMHz <= 0 || isNaN(bandwidthMHz)) { 
+                showMessage('Bandwidth must be positive in Calculator 2.', 'warning');
+                return; 
+            }
+
+            // Check PA constraints
+            if (!VALID_PA.includes(pa) || isNaN(pa)) {
+                document.getElementById('pa2').value = 0;
+                showMessage('PA in Calculator 2 reset to default (0). Must be one of: -6, -4.77, -3, -1.77, 0, 1, 2, 3.', 'warning');
+            }
+
+            let typeA = 0;
+            let typeB = 0;
+            let realTransmitPowerW = 0;
+            let realTransmitPowerDbm = 'N/A';
+
+            try {
+                const totalResources = 60 * bandwidthMHz;
+                
+                // Type A (W)
+                const exponentA = (rsPowerDbm + pa + (10 * Math.log10(totalResources))) / 10;
+                typeA = (Math.pow(10, exponentA) / 1000) * txPorts;
+                
+                // Type B (W)
+                const C1 = getTypeBC1Factor(txPorts, pb);
+                const C2_multiplier = (txPorts === 1 ? 10 : 8);
+                const C2 = bandwidthMHz * 5 * C2_multiplier; 
+                
+                const exponentB = (rsPowerDbm + (10 * Math.log10(C1 + C2))) / 10;
+                typeB = (Math.pow(10, exponentB) / 1000) * 2; 
+
+                // Real Transmit Power (W) = MAX(Type A, Type B)
+                realTransmitPowerW = Math.max(typeA, typeB);
+
+                // Real Transmit Power (dBm) = 10 * LOG10(1000 * W)
+                if (realTransmitPowerW > 0) {
+                    realTransmitPowerDbm = (10 * Math.log10(realTransmitPowerW * 1000)).toFixed(2);
+                } else {
+                    realTransmitPowerDbm = 'N/A';
+                }
+
+            } catch (error) {
+                console.error("Calculation Error (Calc 2):", error);
+                realTransmitPowerW = 'Error';
+                realTransmitPowerDbm = 'Error';
+                typeA = 'Error';
+                typeB = 'Error';
+            }
+
+            // 4. Display Results
+            document.getElementById('realTransmitPowerW').textContent = (typeof realTransmitPowerW === 'number' ? realTransmitPowerW.toFixed(3) : realTransmitPowerW) + ' W';
+            document.getElementById('realTransmitPowerDbm').textContent = realTransmitPowerDbm + ' dBm';
+            document.getElementById('typeAW').textContent = (typeof typeA === 'number' ? typeA.toFixed(3) : typeA) + ' W';
+            document.getElementById('typeBW').textContent = (typeof typeB === 'number' ? typeB.toFixed(3) : typeB) + ' W';
+        }
+
+        // Global initialization
+        window.onload = function() {
+            calculateRruRsPower();
+            calculateRealTransmitPower(); // Run new calculation on load with defaults
+            document.getElementById('messageBox').classList.add('hidden');
+        };
+    </script>
+    <style>
+        /* Custom styles for visual polish and font consistency */
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Dark Mode Background */
+            background-color: #1f2937;
+            color: #f3f4f6;
+        }
+        .input-box {
+            transition: all 0.2s ease-in-out;
+            /* Dark Mode Input styles */
+            background-color: #111827;
+            color: #f3f4f6;
+            border-color: #4b5563;
+        }
+        .input-box:focus {
+            box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.5); /* Green ring on focus */
+        }
+        /* Custom highlight color for calculated power results */
+        .result-highlight-power {
+            /* Dark Mode Result Green */
+            background-color: #064e3b; 
+            color: #a7f3d0; 
+            font-weight: 700;
+            border-color: #065f46;
+        }
+        .calculator-card {
+            /* Dark Mode Card Background */
+            background-color: #374151;
+            padding: 2.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15);
+            margin-bottom: 2rem;
+        }
+        /* Styling for the new equation blocks wrapper */
+        .equation-block {
+            background-color: #4b5563;
+            border: 1px solid #6b7280;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1.5rem;
+            overflow-x: auto;
+        }
+        .equation-block h4 {
+            font-weight: 600;
+            color: #9ca3af;
+            margin-bottom: 0.5rem;
+        }
+        /* Style for the actual code examples (Python/Excel) */
+        .code-block {
+            font-family: monospace;
+            font-size: 0.9em;
+            display: block;
+            white-space: pre-wrap;
+            color: #f3f4f6;
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background-color: #1f2937;
+            border-radius: 0.375rem;
+        }
+        /* Style for the LaTeX containers (to allow MathJax rendering) */
+        .equation-latex {
+            color: #f3f4f6;
+            padding: 0.5rem;
+            background-color: #1f2937;
+            border-radius: 0.375rem;
+            overflow-x: auto; /* Ensure math can scroll if too wide */
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen flex flex-col items-center justify-center bg-gray-900 text-gray-100">
+
+    <div class="w-full max-w-4xl">
+        <header class="mb-6 text-center">
+            <h1 class="text-4xl font-extrabold text-gray-100 mb-2">LTE Power Calculators</h1>
+            <p class="text-gray-400">Tools for Radio Network Planning and Power Analysis</p>
+        </header>
+        
+        <!-- Message Box for constraint warnings -->
+        <div id="messageBox" class="hidden max-w-4xl mx-auto"></div>
+    </div>
+
+    <!-- MAIN CONTAINER FOR BOTH CALCULATORS -->
+    <main class="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
+
+        <!-- CALCULATOR 1: RRU & RS Power (PA derived from pb) -->
+        <div class="calculator-card">
+            <h2 class="text-2xl font-bold text-gray-100 mb-6 border-b border-gray-600 pb-2">1. RRU & RS Power (PA dependent on pb)</h2>
+
+            <!-- INPUTS (Calc 1) -->
+            <div class="grid grid-cols-2 gap-4">
+                <!-- RRU Power (W) -->
+                <div>
+                    <label for="rruPowerW" class="block text-sm font-medium text-gray-300">RRU Power (W)</label>
+                    <input type="number" id="rruPowerW" value="60" oninput="calculateRruRsPower()" 
+                           class="input-box mt-1 block w-full rounded-md shadow-sm p-2 border focus:border-green-500" 
+                           placeholder="e.g., 60" step="any" min="0">
+                </div>
+
+                <!-- TX Ports -->
+                <div>
+                    <label for="txPorts" class="block text-sm font-medium text-gray-300">TX Ports (Default: 2)</label>
+                    <input type="number" id="txPorts" value="2" oninput="calculateRruRsPower()" 
+                           class="input-box mt-1 block w-full rounded-md shadow-sm p-2 border focus:border-green-500" 
+                           placeholder="e.g., 4" step="1" min="1">
+                </div>
+
+                <!-- Bandwidth (MHz) -->
+                <div class="col-span-2">
+                    <label for="bandwidth" class="block text-sm font-medium text-gray-300">Bandwidth (MHz)</label>
+                    <input type="number" id="bandwidth" value="15" oninput="calculateRruRsPower()" 
+                           class="input-box mt-1 block w-full rounded-md shadow-sm p-2 border focus:border-green-500" 
+                           placeholder="e.g., 20" step="any" min="1.4">
+                </div>
+
+                <!-- pb (Constraint: 0, 1, 2, 3) -->
+                <div class="col-span-2">
+                    <label for="pb" class="block text-sm font-medium text-gray-300">pb (Auto-configures PA)</label>
+                    <select id="pb" onchange="calculateRruRsPower()" 
+                            class="input-box mt-1 block w-full rounded-md shadow-sm p-2 border bg-gray-800 focus:border-green-500">
+                        <option value="0" selected>0 (PA = 0 dB)</option>
+                        <option value="1">1 (PA = -3 dB)</option>
+                        <option value="2">2 (PA = -4.77 dB)</option>
+                        <option value="3">3 (PA = -6 dB)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- RESULTS (Calc 1) -->
+            <h3 class="text-lg font-semibold text-gray-200 mt-6 mb-2">Results</h3>
+            <div class="grid grid-cols-1 gap-3">
+                
+                <!-- RRU Power (dBm) Output -->
+                <div class="rounded-lg p-3 shadow-sm result-highlight-power">
+                    <p class="text-sm font-medium text-green-300">RRU Power (dBm)</p>
+                    <p id="rruPowerDbm" class="text-2xl font-bold text-green-400 mt-1">47.78 dBm</p>
+                </div>
+
+                <!-- RS Power (dBm) Output -->
+                <div class="rounded-lg p-3 shadow-sm result-highlight-power">
+                    <p class="text-sm font-medium text-green-300">RS Power (dBm)</p>
+                    <p id="rsPowerDbm" class="text-2xl font-bold text-green-400 mt-1">15.20 dBm</p>
+                </div>
+            </div>
+
+            <!-- EQUATIONS (Calc 1) -->
+            <div class="equation-block">
+                <h3 class="text-lg font-bold text-gray-200 mb-2">RS Power Equation ($P_{\text{RS}}$)</h3>
+
+                <h4 class="text-sm">LaTeX Notation</h4>
+                <!-- Changed to div for MathJax rendering -->
+                <div class="equation-latex">
+                    $$P_{\text{RS(dBm)}} = P_{\text{RRU(dBm)}} - 10 \cdot \log_{10}(TX_{\text{ports}}) - 10 \cdot \log_{10}(\text{Total Resources}) + 10 \cdot \log_{10}(1 + p_b) - 0.05$$
+                    <br>
+                    Where $\text{Total Resources} = 60 \cdot \text{BW}_{\text{MHz}}$ (LTE resource element count approximation for a full OFDM symbol).
+                </div>
+
+                <h4 class="text-sm mt-4">Python Equivalent (with `math` module)</h4>
+                <code class="code-block">
+import math
+
+# Define Variables (Example: 60W RRU, 2TX, 15MHz, pb=0)
+rru_power_dbm = 47.78
+tx_ports = 2
+bandwidth_mhz = 15
+pb = 0
+
+# Calculated intermediate value
+total_resources = 60 * bandwidth_mhz
+
+# RS Power (dBm) calculation
+rs_power_dbm = rru_power_dbm - (10 * math.log10(tx_ports)) - (10 * math.log10(total_resources)) + (10 * math.log10(1 + pb)) - 0.05
+                </code>
+
+                <h4 class="text-sm mt-4">Excel Lambda Equivalent (RS Power, $P_{\text{RS}}$)</h4>
+                <code class="code-block">
+=LAMBDA(RRU_dBm, TX, BW, pb, 
+RRU_dBm - 10*LOG10(TX) - 10*LOG10(60*BW) + 10*LOG10(1+pb) - 0.05
+)
+
+Usage Example: =RS_POWER_CALC(47.78, 2, 15, 0)
+                </code>
+            </div>
+
+        </div>
+
+
+        <!-- CALCULATOR 2: Real Transmit Power (PA independent of pb) -->
+        <div class="calculator-card">
+            <h2 class="text-2xl font-bold text-gray-100 mb-6 border-b border-gray-600 pb-2">2. Real Transmit Power (PA independent)</h2>
+
+            <!-- INPUTS (Calc 2) -->
+            <div class="grid grid-cols-2 gap-4">
+                <!-- RS Power (dBm) - NEW INPUT -->
+                <div class="col-span-2">
+                    <label for="rsPowerDbm2" class="block text-sm font-medium text-gray-300">RS Power (dBm) [Input]</label>
+                    <input type="number" id="rsPowerDbm2" value="15.2" oninput="calculateRealTransmitPower()" 
+                           class="input-box mt-1 block w-full rounded-md shadow-sm p-2 border focus:border-green-500" 
+                           placeholder="e.g., 15.2" step="any">
+                </div>
+                
+                <!-- TX Ports -->
+                <div>
+                    <label for="txPorts2" class="block text-sm font-medium text-gray-300">TX Ports (Default: 2)</label>
+                    <input type="number" id="txPorts2" value="2" oninput="calculateRealTransmitPower()" 
+                           class="input-box mt-1 block w-full rounded-md shadow-sm p-2 border focus:border-green-500" 
+                           placeholder="e.g., 4" step="1" min="1">
+                </div>
+
+                <!-- Bandwidth (MHz) -->
+                <div>
+                    <label for="bandwidth2" class="block text-sm font-medium text-gray-300">Bandwidth (MHz)</label>
+                    <input type="number" id="bandwidth2" value="15" oninput="calculateRealTransmitPower()" 
+                           class="input-box mt-1 block w-full rounded-md shadow-sm p-2 border focus:border-green-500" 
+                           placeholder="e.g., 20" step="any" min="1.4">
+                </div>
+                
+                <!-- pb -->
+                <div>
+                    <label for="pb2" class="block text-sm font-medium text-gray-300">pb (0, 1, 2, 3)</label>
+                    <select id="pb2" onchange="calculateRealTransmitPower()" 
+                            class="input-box mt-1 block w-full rounded-md shadow-sm p-2 border bg-gray-800 focus:border-green-500">
+                        <option value="0" selected>0</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                    </select>
+                </div>
+
+                <!-- PA -->
+                <div>
+                    <label for="pa2" class="block text-sm font-medium text-gray-300">PA (dB) (Default: 0)</label>
+                    <select id="pa2" onchange="calculateRealTransmitPower()" 
+                            class="input-box mt-1 block w-full rounded-md shadow-sm p-2 border bg-gray-800 focus:border-green-500">
+                        <option value="-6">-6.00</option>
+                        <option value="-4.77">-4.77</option>
+                        <option value="-3">-3.00</option>
+                        <option value="-1.77">-1.77</option>
+                        <option value="0" selected>0.00</option>
+                        <option value="1">1.00</option>
+                        <option value="2">2.00</option>
+                        <option value="3">3.00</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- RESULTS (Calc 2) -->
+            <h3 class="text-lg font-semibold text-gray-200 mt-6 mb-2">Calculated Results</h3>
+            <div class="grid grid-cols-2 gap-3">
+                
+                <!-- Real Transmit Power (W) Output (Dark Mode adjusted) -->
+                <div class="rounded-lg p-3 shadow-sm bg-blue-900 border border-blue-700">
+                    <p class="text-sm font-medium text-gray-300">Real Transmit Power (W)</p>
+                    <p id="realTransmitPowerW" class="text-2xl font-bold text-blue-400 mt-1">59.300 W</p>
+                </div>
+
+                <!-- Real Transmit Power (dBm) Output (Dark Mode adjusted) -->
+                <div class="rounded-lg p-3 shadow-sm bg-blue-900 border border-blue-700">
+                    <p class="text-sm font-medium text-gray-300">Real Transmit Power (dBm)</p>
+                    <p id="realTransmitPowerDbm" class="text-2xl font-bold text-blue-400 mt-1">47.73 dBm</p>
+                </div>
+
+                <!-- Type A (W) Output (Dark Mode adjusted) -->
+                <div class="rounded-lg p-3 shadow-sm bg-indigo-900 border border-indigo-700">
+                    <p class="text-sm font-medium text-gray-300">Type A (W)</p>
+                    <p id="typeAW" class="text-xl font-bold text-indigo-400 mt-1">59.300 W</p>
+                </div>
+
+                <!-- Type B (W) Output (Dark Mode adjusted) -->
+                <div class="rounded-lg p-3 shadow-sm bg-indigo-900 border border-indigo-700">
+                    <p class="text-sm font-medium text-gray-300">Type B (W)</p>
+                    <p id="typeBW" class="text-xl font-bold text-indigo-400 mt-1">39.600 W</p>
+                </div>
+            </div>
+
+            <!-- EQUATIONS (Calc 2) -->
+            <div class="equation-block">
+                <h3 class="text-lg font-bold text-gray-200 mb-2">Real Transmit Power Equations ($P_{\text{Real}}$)</h3>
+
+                <h4 class="text-sm">LaTeX Notation (Type A and Type B)</h4>
+                <!-- Changed to div for MathJax rendering -->
+                <div class="equation-latex">
+                    $$P_{\text{Type A(W)}} = \left(\frac{10^{\frac{P_{\text{RS(dBm)}} + P_A + 10 \cdot \log_{10}(\text{Total Resources})}{10}}}{1000}\right) \cdot TX_{\text{ports}}$$
+                    <br>
+                    $$P_{\text{Type B(W)}} = \left(\frac{10^{\frac{P_{\text{RS(dBm)}} + 10 \cdot \log_{10}(C_1 + C_2)}{10}}}{1000}\right) \cdot 2$$
+                    <br>
+                    $$P_{\text{Real(W)}} = \max(P_{\text{Type A(W)}}, P_{\text{Type B(W)}})$$
+                    <br>
+                    Note: $C_2 = 5 \cdot \text{BW}_{\text{MHz}} \cdot \begin{cases} 10 & \text{if } TX=1 \\ 8 & \text{if } TX \ge 2 \end{cases}$
+                </div>
+
+                <h4 class="text-sm mt-4">Python Equivalent (with `math` module)</h4>
+                <code class="code-block">
+import math
+
+# Define Variables (Example: Defaults from Calc 2 inputs)
+rs_power_dbm = 15.2
+tx_ports = 2
+bandwidth_mhz = 15
+pb = 0
+pa = 0
+
+# Calculated intermediate values
+total_resources = 60 * bandwidth_mhz
+# NOTE: getTypeBC1Factor function must be defined separately for this snippet to run
+# For example purposes, we'll manually set C1 based on the function result:
+C1 = 1.25 # Corresponds to TX=2, pb=0
+C2 = bandwidth_mhz * 5 * (10 if tx_ports == 1 else 8)
+
+# Type A (W)
+type_A = (10**((rs_power_dbm + pa + 10 * math.log10(total_resources)) / 10) / 1000) * tx_ports
+
+# Type B (W)
+type_B = (10**((rs_power_dbm + 10 * math.log10(C1 + C2)) / 10) / 1000) * 2
+
+# Real Transmit Power (W)
+real_power_w = max(type_A, type_B)
+                </code>
+
+                <h4 class="text-sm mt-4">Excel Lambda Equivalent (Real Transmit Power, $P_{\text{Real(W)}}$)</h4>
+                <code class="code-block">
+=LAMBDA(RS_dBm, TX, BW, pb, PA, 
+    LET(
+C1, IF(TX=1, SWITCH(pb, 0, 1, 1, 4/5, 2, 3/5, 3, 2/5), SWITCH(pb, 0, 5/4, 1, 1, 2, 3/4, 3, 1/2)),
+C2, BW * 5 * IF(TX=1, 10, 8),
+
+TYPE_A, (10^((RS_dBm + PA + 10*LOG10(60*BW)) / 10) / 1000) * TX,
+TYPE_B, (10^((RS_dBm + 10*LOG10(C1 + C2)) / 10) / 1000) * 2,
+MAX(TYPE_A, TYPE_B)
+    )
+)
+
+Usage Example: =REAL_POWER_CALC(15.2, 2, 15, 0, 0)
+                </code>
+            </div>
+            
+        </div>
+    </main>
+    
+</body>
+</html>

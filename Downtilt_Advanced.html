@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-8G3YJF2DDD"></script>
+    <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-8G3YJF2DDD');
+    </script>
+    <!-- Google tag (gtag.js) -->
+     
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antenna Tilt & RF Coverage Calculator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+         
+        /* --- DARK THEME BASE STYLES --- */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Slate 900 - Dark BG */
+            color: #f1f5f9; /* Light text */
+        }
+        .card {
+            background-color: #1e293b; /* Slate 800 - Dark card background */
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+        }
+        h1, h2 {
+            color: #e2e8f0; /* Light headers */
+        }
+         
+        /* Input Styling for Dark Mode */
+        .input-group label {
+            font-weight: 500;
+            color: #cbd5e1; /* Slate 300 */
+        }
+        .input-group input, .input-group select {
+            padding: 0.5rem;
+            border: 1px solid #475569; /* Slate 600 border */
+            border-radius: 0.5rem;
+            background-color: #334155; /* Slate 700 input background */
+            color: #e2e8f0;
+            transition: all 0.15s ease-in-out;
+        }
+        .input-group input:focus, .input-group select:focus {
+            border-color: #60a5fa; /* Blue 400 focus */
+            ring: 2px;
+            ring-color: #3b82f6;
+            outline: none;
+        }
+         
+        /* Result Row Color Overrides for Dark Theme */
+        .bg-red-50 { background-color: #450a0a !important; } /* Dark Red */
+        .bg-green-50 { background-color: #064e3b !important; } /* Dark Green */
+        .bg-purple-50 { background-color: #4a044e !important; } /* Dark Purple */
+        .bg-blue-50 { background-color: #1e3a8a !important; } /* Dark Blue */
+         
+        .text-red-700 { color: #fca5a5 !important; } /* Light Red text */
+        .text-green-700 { color: #6ee7b7 !important; } /* Light Green text */
+        .text-purple-700 { color: #e9d5ff !important; } /* Light Purple text */
+        .text-blue-700 { color: #93c5fd !important; } /* Light Blue text */
+        .text-gray-200 { color: #e2e8f0 !important; } /* Ensures readability for labels in results */
+         
+        /* Canvas Styling */
+        #visualizationCanvas {
+            border: 2px solid #60a5fa; /* Light blue border */
+            background-color: #0f172a; /* Darkest BG for canvas */
+            border-radius: 0.75rem;
+        }
+    </style>
+</head>
+<body class="p-4">
+
+    <div class="max-w-6xl mx-auto space-y-4">
+        <h1 class="text-3xl font-bold mb-4 text-center">
+            Antenna Coverage Calculator (Geometric & RF)
+        </h1>
+
+        <!-- MAIN GRID: 2 columns for inputs, 2 columns for results -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4"> 
+           
+            <!-- COLUMN 1: Inputs -->
+            <div class="flex flex-col gap-4 h-fit">
+               
+                <!-- Card 1: Geometric Tilt Inputs -->
+                <div class="card p-4">
+                    <h2 class="text-xl font-semibold mb-3">Geometric Inputs (Flat Earth Model)</h2>
+                    <div class="space-y-3">
+                        <div class="input-group flex flex-col">
+                            <label for="heightAntenna">Antenna Height (m)</label>
+                            <input type="number" id="heightAntenna" value="30" min="1" step="1" class="w-full">
+                        </div>
+                        <div class="input-group flex flex-col">
+                            <label for="heightReceiver">Receiver Height (m)</label>
+                            <input type="number" id="heightReceiver" value="1.5" min="0.1" step="0.1" class="w-full">
+                        </div>
+                        <div class="input-group flex flex-col">
+                            <label for="tilt">E+M Down-tilt (degrees)</label>
+                            <input type="number" id="tilt" value="2" min="-10" step="0.1" class="w-full">
+                        </div>
+                        <div class="input-group flex flex-col">
+                            <label for="beamwidth">Vertical Beamwidth (degrees)</label>
+                            <input type="number" id="beamwidth" value="6" min="1" max="180" step="0.1" class="w-full">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 2: RF Coverage Inputs -->
+                <div class="card p-4">
+                    <h2 class="text-xl font-semibold mb-3">RF Coverage Inputs (Hata Model)</h2>
+                    <p class="text-sm text-gray-400 mb-3">Uses Antenna & Receiver Height from above.</p>
+                    <div class="space-y-3">
+                        <div class="input-group flex flex-col">
+                            <label for="frequency">Frequency (MHz)</label>
+                            <input type="number" id="frequency" value="1800" min="150" max="3000" step="1" class="w-full">
+                        </div>
+                        <div class="input-group flex flex-col">
+                            <label for="eirp">EIRP (dBm)</label>
+                            <input type="number" id="eirp" value="60" min="0" step="1" class="w-full">
+                        </div>
+                        <div class="input-group flex flex-col">
+                            <label for="rsrp">Target RSRP (dBm)</label>
+                            <input type="number" id="rsrp" value="-110" min="-140" max="0" step="1" class="w-full">
+                        </div>
+                        <div class="input-group flex flex-col">
+                            <label for="environment">Environment</label>
+                            <select id="environment" class="w-full">
+                                <option value="urban" selected>Urban</option>
+                                <option value="suburban">Suburban</option>
+                                <option value="rural">Rural</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- COLUMN 2: Results -->
+            <div class="flex flex-col gap-4 h-fit">
+                <!-- Card 3: Geometric Results -->
+                <div class="card p-4">
+                    <h2 class="text-xl font-semibold mb-3">Calculated Geometric Radii (m)</h2>
+                    <div class="space-y-2">
+                        <!-- Outer Radius (Closest Edge) -->
+                        <div class="flex justify-between items-center p-2 bg-red-50 rounded-lg">
+                            <span class="font-medium text-gray-200">Outer Radius (Beam Top)</span>
+                            <span class="font-bold text-lg text-red-700" id="result-inner">0 m</span>
+                        </div>
+
+                        <!-- Mid Radius (Beam Center) -->
+                        <div class="flex justify-between items-center p-2 bg-green-50 rounded-lg">
+                            <span class="font-medium text-gray-200">Mid Radius (Beam Center)</span>
+                            <span class="font-bold text-lg text-green-700" id="result-mid">0 m</span>
+                        </div>
+
+                        <!-- Inner Radius (Furthest Edge) -->
+                        <div class="flex justify-between items-center p-2 bg-purple-50 rounded-lg">
+                            <span class="font-medium text-gray-200">Inner Radius (Beam Bottom)</span>
+                            <span class="font-bold text-lg text-purple-700" id="result-outer">0 m</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 4: RF Coverage Result -->
+                <div class="card p-4">
+                    <h2 class="text-xl font-semibold mb-3">Calculated RF Coverage Radius</h2>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center p-2 bg-blue-50 rounded-lg">
+                            <span classs="font-medium text-gray-200">Max RF Radius (Hata Model)</span>
+                            <span class="font-bold text-lg text-blue-700" id="result-rf-radius">0 km</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-3">
+                        Note: The Hata model is an empirical formula and provides an *estimate* of coverage, not a guarantee.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full Width Canvas Below -->
+        <div class="card p-4 flex-grow">
+            <h2 class="text-xl font-semibold mb-2">Antenna Beam Profile</h2>
+            <canvas id="visualizationCanvas" width="800" height="400" class="w-full h-auto max-h-96"></canvas>
+            <p class="text-sm text-center text-gray-400 mt-2">
+                Visualization is schematic with an exaggerated vertical scale for clarity.
+            </p>
+        </div>
+</div>
+
+    <script>
+        // Constants and Element References
+        const DEG_TO_RAD = Math.PI / 180;
+
+        // Grouped inputs for easier management
+        const inputs = {
+            tilt: {
+                heightAntenna: document.getElementById('heightAntenna'),
+                heightReceiver: document.getElementById('heightReceiver'),
+                tilt: document.getElementById('tilt'),
+                beamwidth: document.getElementById('beamwidth'),
+            },
+            rf: {
+                frequency: document.getElementById('frequency'),
+                eirp: document.getElementById('eirp'),
+                rsrp: document.getElementById('rsrp'),
+                environment: document.getElementById('environment'),
+            }
+        };
+
+        const results = {
+            mid: document.getElementById('result-mid'),
+            inner: document.getElementById('result-inner'), // Outer Radius (Closest Edge)
+            outer: document.getElementById('result-outer'), // Inner Radius (Furthest Edge)
+            rfRadius: document.getElementById('result-rf-radius'),
+        };
+
+        const canvas = document.getElementById('visualizationCanvas');
+        const ctx = canvas.getContext('2d');
+
+        /**
+         * Converts degrees to radians.
+         */
+        function toRadians(degrees) {
+            return degrees * DEG_TO_RAD;
+        }
+
+        /**
+         * Formats a distance (number or string 'Infinity') for display.
+         */
+        function formatDistance(distance) {
+            if (distance === 'Infinity') {
+                return '∞'; 
+            }
+            if (distance < 0) {
+                 return 'Invalid (Negative Distance)';
+            }
+            return `${distance.toFixed(1)} m`;
+        }
+
+        /**
+         * Calculates the radius distance based on effective height and angle.
+         */
+        function calculateGeometricRadius(H_eff, angleDeg) {
+            if (H_eff <= 0) return 0;
+            if (angleDeg <= 0) {
+                // If angle is 0 or pointing up (negative), coverage is infinite
+                return 'Infinity';
+            }
+            const angleRad = toRadians(angleDeg);
+            const distance = H_eff / Math.tan(angleRad);
+            // Use a large value threshold for practical 'Infinity'
+            return distance > 500000 ? 'Infinity' : distance; 
+        }
+
+        /**
+         * Performs the Geometric Tilt calculation.
+         */
+        function calculateTilt() {
+            const Ha = parseFloat(inputs.tilt.heightAntenna.value) || 0;
+            const Hr = parseFloat(inputs.tilt.heightReceiver.value) || 0;
+            const tilt = parseFloat(inputs.tilt.tilt.value) || 0;
+            const beamwidth = parseFloat(inputs.tilt.beamwidth.value) || 0;
+
+            const Heff = Ha - Hr;
+
+            if (Heff <= 0) {
+                // Cannot calculate if antenna is below or at receiver height
+                results.mid.textContent = 'N/A';
+                results.inner.textContent = 'N/A';
+                results.outer.textContent = 'N/A';
+                return { Ha, Hr, Heff: 0, D_inner: 0, D_mid: 0, D_outer: 0, tilt: 0, beamwidth: 0 };
+            }
+
+            // Angles below horizontal
+            const angleMid = tilt;
+            const angleTop = tilt - (beamwidth / 2); // Closest point to antenna
+            const angleBottom = tilt + (beamwidth / 2); // Furthest point from antenna
+
+            // Calculate Radii: D_inner is closest (Outer Radius), D_outer is furthest (Inner Radius)
+            const D_mid = calculateGeometricRadius(Heff, angleMid);
+            const D_inner = calculateGeometricRadius(Heff, angleTop);
+            const D_outer = calculateGeometricRadius(Heff, angleBottom);
+
+            // Update result display
+            results.mid.textContent = formatDistance(D_mid);
+            results.inner.textContent = formatDistance(D_inner);
+            results.outer.textContent = formatDistance(D_outer);
+
+            return { Ha, Hr, Heff, D_inner, D_mid, D_outer, tilt, beamwidth };
+        }
+
+        /**
+         * Performs the RF Coverage calculation using the Hata Model.
+         */
+        function calculateHataRadius() {
+            // Get RF inputs
+            const f = parseFloat(inputs.rf.frequency.value); // MHz
+            const eirp = parseFloat(inputs.rf.eirp.value); // dBm
+            const targetRsrp = parseFloat(inputs.rf.rsrp.value); // dBm
+            const environment = inputs.rf.environment.value;
+            
+            // Get shared inputs
+            const h_tx = parseFloat(inputs.tilt.heightAntenna.value); // m
+            const h_rx = parseFloat(inputs.tilt.heightReceiver.value); // m
+
+            if (f < 150 || f > 3000 || h_tx <= 0 || h_rx <= 0) {
+                results.rfRadius.textContent = 'Invalid Inputs';
+                return;
+            }
+
+            // 1. Calculate Max Allowable Path Loss (L_p)
+            const maxPathLoss = eirp - targetRsrp;
+
+            // 2. Calculate Receiver Height Correction Factor a(h_rx)
+            // Using standard Hata model formula for "small/medium city"
+            const a_hrx = (1.1 * Math.log10(f) - 0.7) * h_rx - (1.56 * Math.log10(f) - 0.8);
+
+            // 3. Calculate fixed parts of the Hata formula
+            // L_p = A + B * log10(d) - Environment_Correction
+            // A = 69.55 + 26.16*log10(f) - 13.82*log10(h_tx) - a(h_rx)
+            // B = 44.9 - 6.55*log10(h_tx)
+            
+            const A = 69.55 + (26.16 * Math.log10(f)) - (13.82 * Math.log10(h_tx)) - a_hrx;
+            const B = 44.9 - (6.55 * Math.log10(h_tx));
+
+            // 4. Adjust Path Loss for environment
+            // We invert the formula: d = 10^((L_p - A + Env_Correction) / B)
+            
+            let effectivePathLoss = maxPathLoss;
+            if (environment === 'suburban') {
+                // L_suburban = L_urban - 2*(log10(f/28))^2 - 5.4
+                // So, L_urban = L_suburban + 2*(log10(f/28))^2 + 5.4
+                effectivePathLoss += 2 * Math.pow(Math.log10(f / 28), 2) + 5.4;
+            } else if (environment === 'rural') {
+                // L_rural = L_urban - 4.78*(log10(f))^2 + 18.33*log10(f) - 40.94
+                // So, L_urban = L_rural + 4.78*(log10(f))^2 - 18.33*log10(f) + 40.94
+                effectivePathLoss += 4.78 * Math.pow(Math.log10(f), 2) - 18.33 * Math.log10(f) + 40.94;
+            }
+
+            // 5. Solve for d (distance in km)
+            // log10(d) = (L_p - A) / B
+            const log_d = (effectivePathLoss - A) / B;
+            const d = Math.pow(10, log_d);
+
+            if (isNaN(d) || d < 0) {
+                results.rfRadius.textContent = 'Error';
+            } else {
+                results.rfRadius.textContent = `${d.toFixed(2)} km`;
+            }
+        }
+
+
+        /**
+         * Draws the antenna, ground, and beam on the canvas.
+         */
+        function drawVisualization({ Ha, Hr, Heff, D_inner, D_mid, D_outer, tilt, beamwidth }) {
+            const W = canvas.width;
+            const H = canvas.height;
+            const PADDING = 60;
+
+            // Colors optimized for Dark Mode
+            const COLOR_GROUND = '#4ade80';   // Green-400
+            const COLOR_ANTENNA = '#60a5fa';  // Blue-400
+            const COLOR_TEXT = '#e2e8f0';     // Slate-200
+            const COLOR_RED_BEAM = '#fca5a5'; // Red-300 (Outer Radius)
+            const COLOR_GREEN_BEAM = '#6ee7b7'; // Emerald-300 (Mid Radius)
+            const COLOR_PURPLE_BEAM = '#e9d5ff'; // Violet-300 (Inner Radius)
+            const COLOR_ERROR = '#f87171'; // Red-400
+            const COLOR_BEAM_FILL = 'rgba(147, 51, 234, 0.2)'; // Violet-600 with 20% alpha
+
+            ctx.clearRect(0, 0, W, H);
+
+            // --- SCALING LOGIC (Exaggerated Vertical Scale) ---
+            const distances = [D_mid, D_inner, D_outer].filter(d => typeof d === 'number' && d > 0);
+            const D_max_calc = distances.length > 0 ? Math.max(...distances) : 1000;
+            const H_max_calc = Ha; 
+
+            const maxAllowedWidth = W - 2 * PADDING;
+            const maxAllowedHeight = H - 2 * PADDING;
+
+            // Scale for X-axis (Distance): 80% of canvas width
+            const scaleX = D_max_calc > 0 ? maxAllowedWidth * 0.9 / D_max_calc : 1; 
+
+            // Scale for Y-axis (Height): Use a factor that ensures height is clearly visible
+            const VISUAL_HEIGHT_FACTOR = 0.75; // Ha should occupy about 50% of the canvas height
+            const scaleY = H_max_calc > 0 ? (maxAllowedHeight * VISUAL_HEIGHT_FACTOR) / H_max_calc : 1;
+             
+            // If the max distance is very small, use the X-scale for Y to maintain proportion
+            if (D_max_calc < 50) {
+                 const smallScale = Math.min(maxAllowedWidth / D_max_calc, maxAllowedHeight / H_max_calc);
+                 // Using a small scale for both X and Y if the distance is too small to exaggerate
+                 scaleY = scaleX = smallScale;
+            }
+
+            // Map coordinates: (x_dist, y_height) -> (canvas_x, canvas_y)
+            const mapX = (x_dist) => PADDING + x_dist * scaleX;
+            const mapY = (y_height) => H - PADDING - y_height * scaleY;
+
+            // Antenna/Ground Coordinates
+            const antennaX = PADDING; 
+            const groundY = H - PADDING;
+
+            const antennaYTop = mapY(Ha);
+            const antennaYRx = mapY(Hr);
+             
+            // --- 1. Draw Ground and Axis ---
+            ctx.beginPath();
+            ctx.strokeStyle = COLOR_GROUND; 
+            ctx.lineWidth = 4;
+            ctx.moveTo(0, groundY);
+            ctx.lineTo(W, groundY);
+            ctx.stroke();
+            ctx.fillStyle = COLOR_TEXT;
+            ctx.font = '12px Inter';
+            ctx.fillText('Ground (0 m)', PADDING + 5, groundY - 5);
+
+
+            // --- 2. Draw Antenna Mast ---
+            ctx.beginPath();
+            ctx.strokeStyle = COLOR_ANTENNA; 
+            ctx.lineWidth = 3;
+            ctx.moveTo(antennaX, groundY);
+            ctx.lineTo(antennaX, antennaYTop);
+            ctx.stroke();
+
+            // Antenna label
+            ctx.fillStyle = COLOR_ANTENNA;
+            ctx.fillText(`${Ha} m`, antennaX + 5, antennaYTop + 10);
+             
+            // Receiver Height Line (if applicable)
+            if (Hr > 0) {
+                ctx.beginPath();
+                ctx.strokeStyle = COLOR_ANTENNA;
+                ctx.lineWidth = 1;
+                ctx.setLineDash([3, 3]);
+                ctx.moveTo(antennaX, antennaYRx);
+                ctx.lineTo(W, antennaYRx);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillText(`Receiver Height (${Hr} m)`, antennaX + 5, antennaYRx - 5);
+            }
+
+            // --- 3. Draw Beam Fill (Must happen first) ---
+            if (Heff <= 0) {
+                // Don't draw beam if Heff is invalid
+                ctx.fillStyle = COLOR_ERROR;
+                ctx.font = '16px Inter';
+                ctx.fillText('Antenna must be higher than receiver to calculate.', antennaX + 20, H / 2);
+                return;
+            }
+
+            const D_top = D_inner; // Closest Edge (Outer Radius)
+            const D_bottom = D_outer; // Furthest Edge (Inner Radius)
+             
+            // Beam Fill only if both edges hit the ground
+            if (typeof D_top === 'number' && typeof D_bottom === 'number' && D_top > 0 && D_bottom > 0) {
+                ctx.beginPath();
+                ctx.moveTo(antennaX, antennaYTop); // Start at antenna tip
+                ctx.lineTo(mapX(D_top), antennaYRx); // Draw the top edge (Outer Radius) to the receiver height line
+                ctx.lineTo(mapX(D_bottom), antennaYRx); // Draw the bottom edge (Inner Radius) to the receiver height line
+                ctx.closePath();
+                ctx.fillStyle = COLOR_BEAM_FILL;
+                ctx.fill();
+            }
+
+            // --- 4. Draw Beam Strokes and Distance Lines ---
+            const beams = [
+                { D_dist: D_inner, color: COLOR_RED_BEAM, label: 'Outer Radius', angle: tilt - (beamwidth / 2) },
+                { D_dist: D_mid, color: COLOR_GREEN_BEAM, label: 'Mid-Beam', angle: tilt },
+                { D_dist: D_outer, color: COLOR_PURPLE_BEAM, label: 'Inner Radius', angle: tilt + (beamwidth / 2) },
+            ];
+             
+            const labelPositions = [];
+
+            beams.forEach(beam => {
+                let angleDeg = beam.angle;
+
+                if (beam.D_dist === 'Infinity' || beam.D_dist < 0) {
+                    // Scenario: Beam pointing up or distance is invalid
+                    const angleRad = toRadians(angleDeg);
+
+                    ctx.beginPath();
+                    ctx.strokeStyle = beam.color;
+                    ctx.lineWidth = 1.5;
+                    ctx.setLineDash([5, 5]);
+                    ctx.moveTo(antennaX, antennaYTop);
+                     
+                    // Use a fixed length for the infinite line
+                    const farX = antennaX + 400;
+                    // Calculate Y based on angle, using corrected scale for visual angle representation
+                    const deltaY = farX * Math.tan(angleRad * -1) / scaleX * scaleY; 
+                    const farY = antennaYTop - deltaY;
+                     
+                    ctx.lineTo(farX, farY);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                     
+                    if (beam.D_dist === 'Infinity' && angleDeg <= 0) {
+                        ctx.fillStyle = COLOR_ERROR;
+                        ctx.font = '12px Inter';
+                        ctx.fillText(`No Ground Intersection (Angle ${angleDeg.toFixed(1)}°)`, farX - 250, farY - 5);
+                    }
+                } else {
+                    // Scenario: Beam hits the ground
+                    const beamX = mapX(beam.D_dist);
+                     
+                    // Draw beam stroke
+                    ctx.beginPath();
+                    ctx.strokeStyle = beam.color;
+                    ctx.lineWidth = 1.5;
+                    ctx.moveTo(antennaX, antennaYTop);
+                    ctx.lineTo(beamX, antennaYRx);
+                    ctx.stroke();
+
+                    // Draw Radius line on ground (vertical dash)
+                    ctx.beginPath();
+                    ctx.strokeStyle = beam.color;
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([2, 2]);
+                    ctx.moveTo(beamX, groundY);
+                    ctx.lineTo(beamX, groundY + 10);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                     
+                    // Store label position for staggered display
+                    labelPositions.push({ 
+                        x: beamX, 
+                        color: beam.color, 
+                        text: `${beam.label}: ${formatDistance(beam.D_dist)}` 
+                    });
+                }
+            });
+
+            // --- 5. Draw Staggered Distance Labels on Ground ---
+            labelPositions.sort((a, b) => a.x - b.x); // Sort by distance (X position)
+
+            let currentY = groundY + 25;
+            const lineSpacing = 16;
+             
+            labelPositions.forEach((label, index) => {
+                ctx.fillStyle = label.color;
+                ctx.font = '14px Inter';
+                // Place labels slightly to the right of their line to avoid covering the vertical dash
+                ctx.fillText(label.text, label.x + 0, currentY + index * lineSpacing);
+            });
+        }
+
+        /**
+         * Master function to run all calculations and visualizations.
+         */
+        function updateAllCalculations() {
+            // 1. Run tilt calculation and get its results
+            const tiltResults = calculateTilt();
+            
+            // 2. Run RF calculation
+            calculateHataRadius();
+
+            // 3. Run visualization using the results from the tilt calculation
+            drawVisualization(tiltResults);
+        }
+
+        // --- Event Listeners and Initial Load ---
+
+        // Attach listeners to all inputs to re-calculate on change
+        Object.values(inputs.tilt).forEach(input => {
+            input.addEventListener('input', updateAllCalculations);
+        });
+        Object.values(inputs.rf).forEach(input => {
+            input.addEventListener('input', updateAllCalculations);
+        });
+
+        // Initialize on load
+        updateAllCalculations();
+
+        // Handle canvas resizing for responsiveness
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            // Get padding/border of the card
+            const style = window.getComputedStyle(container);
+            const paddingX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+            
+            canvas.width = container.clientWidth - paddingX;
+            canvas.height = canvas.width * 0.5; // Maintain a 2:1 aspect ratio
+            updateAllCalculations(); // Redraw with new dimensions
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        // Use setTimeout to ensure layout is stable before initial resize
+        setTimeout(resizeCanvas, 0);
+    </script>
+</body>
+</html>

@@ -177,17 +177,20 @@
                         Note: The Hata model is an empirical formula and provides an *estimate* of coverage, not a guarantee.
                     </p>
                 </div>
+
+                <!-- Canvas Moved Inside Column 2 -->
+                <div class="card p-4 flex-grow">
+                    <h2 class="text-xl font-semibold mb-2">Antenna Beam Profile</h2>
+                    <canvas id="visualizationCanvas" width="800" height="400" class="w-full h-auto max-h-96"></canvas>
+                    <p class="text-sm text-center text-gray-400 mt-2">
+                        Visualization is schematic with an exaggerated vertical scale for clarity.
+                    </p>
+                </div>
             </div>
         </div>
 
         <!-- Full Width Canvas Below -->
-        <div class="card p-4 flex-grow">
-            <h2 class="text-xl font-semibold mb-2">Antenna Beam Profile</h2>
-            <canvas id="visualizationCanvas" width="800" height="400" class="w-full h-auto max-h-96"></canvas>
-            <p class="text-sm text-center text-gray-400 mt-2">
-                Visualization is schematic with an exaggerated vertical scale for clarity.
-            </p>
-        </div>
+        <!-- Canvas div removed from here -->
 </div>
 
     <script>
@@ -382,7 +385,7 @@
             const maxAllowedHeight = H - 2 * PADDING;
 
             // Scale for X-axis (Distance): 80% of canvas width
-            const scaleX = D_max_calc > 0 ? maxAllowedWidth * 0.9 / D_max_calc : 1; 
+            const scaleX = D_max_calc > 0 ? maxAllowedWidth * 0.8 / D_max_calc : 1; 
 
             // Scale for Y-axis (Height): Use a factor that ensures height is clearly visible
             const VISUAL_HEIGHT_FACTOR = 0.75; // Ha should occupy about 50% of the canvas height
@@ -415,7 +418,7 @@
             ctx.stroke();
             ctx.fillStyle = COLOR_TEXT;
             ctx.font = '12px Inter';
-            ctx.fillText('Ground (0 m)', PADDING + 5, groundY - 5);
+            //ctx.fillText('Ground (0 m)', PADDING + 5, groundY - 5);
 
 
             // --- 2. Draw Antenna Mast ---
@@ -428,7 +431,7 @@
 
             // Antenna label
             ctx.fillStyle = COLOR_ANTENNA;
-            ctx.fillText(`${Ha} m`, antennaX + 5, antennaYTop + 10);
+            ctx.fillText(`${Ha} m`, antennaX - 35, antennaYTop + 10);
              
             // Receiver Height Line (if applicable)
             if (Hr > 0) {
@@ -440,7 +443,7 @@
                 ctx.lineTo(W, antennaYRx);
                 ctx.stroke();
                 ctx.setLineDash([]);
-                ctx.fillText(`Receiver Height (${Hr} m)`, antennaX + 5, antennaYRx - 5);
+                ctx.fillText(`Receiver (${Hr} m)`, antennaX + 5, antennaYRx - 5);
             }
 
             // --- 3. Draw Beam Fill (Must happen first) ---
@@ -593,3 +596,4 @@
     </script>
 </body>
 </html>
+

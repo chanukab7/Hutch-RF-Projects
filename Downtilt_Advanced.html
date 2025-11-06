@@ -13,7 +13,7 @@
      
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Antenna Tilt & RF Coverage Calculator</title>
+    <title>Integrated Tilt & Hata RF Calculator</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
@@ -77,7 +77,7 @@
 
     <div class="max-w-6xl mx-auto space-y-4">
         <h1 class="text-3xl font-bold mb-4 text-center">
-            Antenna Coverage Calculator (Geometric & RF)
+            Integrated Antenna Tilt & RF Coverage Calculator
         </h1>
 
         <!-- MAIN GRID: 2 columns for inputs, 2 columns for results -->
@@ -88,11 +88,11 @@
                
                 <!-- Card 1: Geometric Tilt Inputs -->
                 <div class="card p-4">
-                    <h2 class="text-xl font-semibold mb-3">Geometric Inputs (Flat Earth Model)</h2>
+                    <h2 class="text-xl font-semibold mb-3">Geometric & RF Inputs (Shared)</h2>
                     <div class="space-y-3">
                         <div class="input-group flex flex-col">
                             <label for="heightAntenna">Antenna Height (m)</label>
-                            <input type="number" id="heightAntenna" value="30" min="1" step="1" class="w-full">
+                            <input type="number" id="heightAntenna" value="60" min="1" step="1" class="w-full">
                         </div>
                         <div class="input-group flex flex-col">
                             <label for="heightReceiver">Receiver Height (m)</label>
@@ -100,10 +100,10 @@
                         </div>
                         <div class="input-group flex flex-col">
                             <label for="tilt">E+M Down-tilt (degrees)</label>
-                            <input type="number" id="tilt" value="2" min="-10" step="0.1" class="w-full">
+                            <input type="number" id="tilt" value="3" min="-10" step="0.1" class="w-full">
                         </div>
                         <div class="input-group flex flex-col">
-                            <label for="beamwidth">Vertical Beamwidth (degrees)</label>
+                            <label for="beamwidth">Vertical Beamwidth (degrees, 3dB)</label>
                             <input type="number" id="beamwidth" value="6" min="1" max="180" step="0.1" class="w-full">
                         </div>
                     </div>
@@ -111,23 +111,32 @@
 
                 <!-- Card 2: RF Coverage Inputs -->
                 <div class="card p-4">
-                    <h2 class="text-xl font-semibold mb-3">RF Coverage Inputs (Hata Model)</h2>
-                    <p class="text-sm text-gray-400 mb-3">Uses Antenna & Receiver Height from above.</p>
+                    <h2 class="text-xl font-semibold mb-3">RF Link Budget Inputs</h2>
                     <div class="space-y-3">
                         <div class="input-group flex flex-col">
                             <label for="frequency">Frequency (MHz)</label>
                             <input type="number" id="frequency" value="1800" min="150" max="3000" step="1" class="w-full">
                         </div>
+                        
+                        <!-- EIRP and RSRP side-by-side -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="input-group flex flex-col">
+                                <label for="eirp">EIRP (dBm)</label>
+                                <input type="number" id="eirp" value="47.8" min="0" step="1" class="w-full">
+                            </div>
+                            <div class="input-group flex flex-col">
+                                <label for="rsrp">Target RSRP (dBm)</label>
+                                <input type="number" id="rsrp" value="-105" min="-140" max="0" step="1" class="w-full">
+                            </div>
+                        </div>
+                        <!-- End of change -->
+
                         <div class="input-group flex flex-col">
-                            <label for="eirp">EIRP (dBm)</label>
-                            <input type="number" id="eirp" value="60" min="0" step="1" class="w-full">
+                            <label for="otherLosses">Other Losses (dB)</label>
+                            <input type="number" id="otherLosses" value="8" min="0" step="0.5" class="w-full" title="Accounts for Feeder Loss, Body Loss, Fade Margin, etc.">
                         </div>
                         <div class="input-group flex flex-col">
-                            <label for="rsrp">Target RSRP (dBm)</label>
-                            <input type="number" id="rsrp" value="-110" min="-140" max="0" step="1" class="w-full">
-                        </div>
-                        <div class="input-group flex flex-col">
-                            <label for="environment">Environment</label>
+                            <label for="environment">Environment (Hata Model)</label>
                             <select id="environment" class="w-full">
                                 <option value="urban" selected>Urban</option>
                                 <option value="suburban">Suburban</option>
@@ -169,12 +178,12 @@
                     <h2 class="text-xl font-semibold mb-3">Calculated RF Coverage Radius</h2>
                     <div class="space-y-2">
                         <div class="flex justify-between items-center p-2 bg-blue-50 rounded-lg">
-                            <span classs="font-medium text-gray-200">Max RF Radius (Hata Model)</span>
+                            <span classs="font-medium text-gray-200">Max RF Radius (Integrated Model)</span>
                             <span class="font-bold text-lg text-blue-700" id="result-rf-radius">0 km</span>
                         </div>
                     </div>
                     <p class="text-xs text-gray-400 mt-3">
-                        Note: The Hata model is an empirical formula and provides an *estimate* of coverage, not a guarantee.
+                        Note: This model finds the distance where Hata Loss + Antenna Tilt Loss = Link Budget.
                     </p>
                 </div>
 
@@ -188,14 +197,12 @@
                 </div>
             </div>
         </div>
-
-        <!-- Full Width Canvas Below -->
-        <!-- Canvas div removed from here -->
 </div>
 
     <script>
         // Constants and Element References
         const DEG_TO_RAD = Math.PI / 180;
+        const LOG10 = Math.log10;
 
         // Grouped inputs for easier management
         const inputs = {
@@ -210,6 +217,7 @@
                 eirp: document.getElementById('eirp'),
                 rsrp: document.getElementById('rsrp'),
                 environment: document.getElementById('environment'),
+                otherLosses: document.getElementById('otherLosses'),
             }
         };
 
@@ -242,7 +250,7 @@
             }
             return `${distance.toFixed(1)} m`;
         }
-
+        
         /**
          * Calculates the radius distance based on effective height and angle.
          */
@@ -259,7 +267,7 @@
         }
 
         /**
-         * Performs the Geometric Tilt calculation.
+         * Performs the Geometric Tilt calculation (for visualization).
          */
         function calculateTilt() {
             const Ha = parseFloat(inputs.tilt.heightAntenna.value) || 0;
@@ -295,63 +303,127 @@
             return { Ha, Hr, Heff, D_inner, D_mid, D_outer, tilt, beamwidth };
         }
 
-        /**
-         * Performs the RF Coverage calculation using the Hata Model.
-         */
-        function calculateHataRadius() {
-            // Get RF inputs
-            const f = parseFloat(inputs.rf.frequency.value); // MHz
-            const eirp = parseFloat(inputs.rf.eirp.value); // dBm
-            const targetRsrp = parseFloat(inputs.rf.rsrp.value); // dBm
-            const environment = inputs.rf.environment.value;
-            
-            // Get shared inputs
-            const h_tx = parseFloat(inputs.tilt.heightAntenna.value); // m
-            const h_rx = parseFloat(inputs.tilt.heightReceiver.value); // m
+        // --- NEW INTEGRATED RF CALCULATION ---
 
-            if (f < 150 || f > 3000 || h_tx <= 0 || h_rx <= 0) {
+        /**
+         * Calculates the Hata (Urban) Path Loss for a given distance.
+         * All other environment corrections are applied to the MAPL.
+         */
+        function getHataUrbanLoss(d_km, f_mhz, h_tx_m, a_hrx) {
+            if (d_km <= 0) return 0;
+            
+            // L_p = A + B * log10(d)
+            // *** FIX: Changed h_tx to h_tx_m to match parameter name ***
+            const A = 69.55 + (26.16 * LOG10(f_mhz)) - (13.82 * LOG10(h_tx_m)) - a_hrx;
+            const B = 44.9 - (6.55 * LOG10(h_tx_m));
+            
+            const loss = A + B * LOG10(d_km);
+            return loss;
+        }
+
+        /**
+         * Calculates the antenna's vertical discrimination loss at a given distance.
+         * Uses a standard quadratic approximation (A = 12 * (angle / 3dB_angle)^2)
+         */
+        function getAntennaTiltLoss(d_km, H_eff_m, tilt_deg, v_beamwidth_deg) {
+            if (d_km <= 0 || H_eff_m <= 0 || v_beamwidth_deg <=0) return 0;
+
+            const d_m = d_km * 1000;
+            // 1. Find elevation angle from antenna to user at distance d
+            const elevationAngleDeg = Math.atan(H_eff_m / d_m) / DEG_TO_RAD;
+            
+            // 2. Find angle difference from antenna's boresight (tilt)
+            const deltaAngle = Math.abs(elevationAngleDeg - tilt_deg);
+            
+            // 3. Calculate loss based on 3dB half-beamwidth
+            const halfBeamwidth = v_beamwidth_deg / 2;
+            
+            // Quadratic model: Loss = 12 * (deltaAngle / halfBeamwidth)^2
+            // This is an approximation of the main lobe.
+            const tiltLoss = 12 * Math.pow(deltaAngle / halfBeamwidth, 2);
+            
+            // 4. Cap loss at a realistic Front-to-Back ratio (e.g., 25 dB)
+            return Math.min(tiltLoss, 25);
+        }
+
+        /**
+         * Performs the *NEW* Integrated RF Coverage calculation.
+         * Uses a bisection solver to find d where:
+         * HataLoss(d) + TiltLoss(d) = Effective_MAPL
+         */
+        function calculateIntegratedHataRadius() {
+            // 1. Get all input values
+            const f = parseFloat(inputs.rf.frequency.value);
+            const eirp = parseFloat(inputs.rf.eirp.value);
+            const targetRsrp = parseFloat(inputs.rf.rsrp.value);
+            const environment = inputs.rf.environment.value;
+            const h_tx = parseFloat(inputs.tilt.heightAntenna.value);
+            const h_rx = parseFloat(inputs.tilt.heightReceiver.value);
+            const tilt = parseFloat(inputs.tilt.tilt.value);
+            const beamwidth = parseFloat(inputs.tilt.beamwidth.value);
+            const otherLosses = parseFloat(inputs.rf.otherLosses.value);
+
+            const H_eff = h_tx - h_rx;
+
+            // 2. Validate inputs
+            if (f < 150 || f > 3000 || H_eff <= 0) {
                 results.rfRadius.textContent = 'Invalid Inputs';
                 return;
             }
-
-            // 1. Calculate Max Allowable Path Loss (L_p)
-            const maxPathLoss = eirp - targetRsrp;
-
-            // 2. Calculate Receiver Height Correction Factor a(h_rx)
-            // Using standard Hata model formula for "small/medium city"
-            const a_hrx = (1.1 * Math.log10(f) - 0.7) * h_rx - (1.56 * Math.log10(f) - 0.8);
-
-            // 3. Calculate fixed parts of the Hata formula
-            // L_p = A + B * log10(d) - Environment_Correction
-            // A = 69.55 + 26.16*log10(f) - 13.82*log10(h_tx) - a(h_rx)
-            // B = 44.9 - 6.55*log10(h_tx)
             
-            const A = 69.55 + (26.16 * Math.log10(f)) - (13.82 * Math.log10(h_tx)) - a_hrx;
-            const B = 44.9 - (6.55 * Math.log10(h_tx));
+            // 3. Calculate Max Allowable Path Loss (MAPL)
+            const MAPL = eirp - targetRsrp - otherLosses;
 
-            // 4. Adjust Path Loss for environment
-            // We invert the formula: d = 10^((L_p - A + Env_Correction) / B)
-            
-            let effectivePathLoss = maxPathLoss;
+            // 4. Calculate receiver height correction (for "small/medium city")
+            // This is constant for the entire calculation.
+            const a_hrx = (1.1 * LOG10(f) - 0.7) * h_rx - (1.56 * LOG10(f) - 0.8);
+
+            // 5. Calculate the "Effective" MAPL by adding back environment corrections.
+            // This makes the solver's target = HataUrbanLoss + TiltLoss
+            let effectiveMAPL = MAPL;
             if (environment === 'suburban') {
-                // L_suburban = L_urban - 2*(log10(f/28))^2 - 5.4
-                // So, L_urban = L_suburban + 2*(log10(f/28))^2 + 5.4
-                effectivePathLoss += 2 * Math.pow(Math.log10(f / 28), 2) + 5.4;
+                effectiveMAPL += 2 * Math.pow(LOG10(f / 28), 2) + 5.4;
             } else if (environment === 'rural') {
-                // L_rural = L_urban - 4.78*(log10(f))^2 + 18.33*log10(f) - 40.94
-                // So, L_urban = L_rural + 4.78*(log10(f))^2 - 18.33*log10(f) + 40.94
-                effectivePathLoss += 4.78 * Math.pow(Math.log10(f), 2) - 18.33 * Math.log10(f) + 40.94;
+                effectiveMAPL += 4.78 * Math.pow(LOG10(f), 2) - 18.33 * LOG10(f) + 40.94;
             }
 
-            // 5. Solve for d (distance in km)
-            // log10(d) = (L_p - A) / B
-            const log_d = (effectivePathLoss - A) / B;
-            const d = Math.pow(10, log_d);
+            // 6. Bisection Solver
+            let d_min_km = 0.01; // 10 meters
+            let d_max_km = 100; // 100 km (max Hata range)
+            let d_mid_km = 0;
+            let totalLoss = 0;
+            const iterations = 100; // More than enough for precision
 
-            if (isNaN(d) || d < 0) {
+            for (let i = 0; i < iterations; i++) {
+                d_mid_km = (d_min_km + d_max_km) / 2;
+                
+                // Calculate total loss at the midpoint distance
+                const hataLoss = getHataUrbanLoss(d_mid_km, f, h_tx, a_hrx);
+                const tiltLoss = getAntennaTiltLoss(d_mid_km, H_eff, tilt, beamwidth);
+                totalLoss = hataLoss + tiltLoss;
+
+                // Adjust search range
+                if (totalLoss < effectiveMAPL) {
+                    // Loss is too low, we can go further
+                    d_min_km = d_mid_km;
+                } else {
+                    // Loss is too high, we must be closer
+                    d_max_km = d_mid_km;
+                }
+
+                // Check for convergence
+                if (d_max_km - d_min_km < 0.001) { // 1 meter precision
+                    break;
+                }
+            }
+            
+            // 7. Display result
+            if (isNaN(d_mid_km) || d_mid_km < 0) {
                 results.rfRadius.textContent = 'Error';
+            } else if (d_mid_km > 99) {
+                 results.rfRadius.textContent = '> 100 km';
             } else {
-                results.rfRadius.textContent = `${d.toFixed(2)} km`;
+                results.rfRadius.textContent = `${d_mid_km.toFixed(2)} km`;
             }
         }
 
@@ -555,11 +627,11 @@
          * Master function to run all calculations and visualizations.
          */
         function updateAllCalculations() {
-            // 1. Run tilt calculation and get its results
+            // 1. Run tilt calculation and get its results for the visual
             const tiltResults = calculateTilt();
             
-            // 2. Run RF calculation
-            calculateHataRadius();
+            // 2. Run the new integrated RF calculation
+            calculateIntegratedHataRadius();
 
             // 3. Run visualization using the results from the tilt calculation
             drawVisualization(tiltResults);
@@ -596,4 +668,3 @@
     </script>
 </body>
 </html>
-

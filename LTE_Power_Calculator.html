@@ -202,7 +202,7 @@
                 typeB = (Math.pow(10, exponentB) / 1000) * 2; 
 
                 // Real Transmit Power (W) = MAX(Type A, Type B)
-                realTransmitPowerW = Math.max(typeA, typeB);
+                realTransmitPowerW = typeA;
 
                 // Real Transmit Power (dBm) = 10 * LOG10(1000 * W)
                 if (realTransmitPowerW > 0) {
